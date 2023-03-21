@@ -102,8 +102,8 @@ function Shape:get_view_dims(extra_points, mirror_point)
 
     local min_x, min_y, max_x, max_y
 
-    for x, y_vals in pairs(self.arr) do
-        for y, _ in pairs(y_vals) do
+    for x, y_vals in ipairs(self.arr) do
+        for y, _ in ipairs(y_vals) do
             min_x, min_y, max_x, max_y = update_minmax({ x = x, y = y }, min_x, min_y, max_x, max_y)
         end
     end
@@ -112,7 +112,7 @@ function Shape:get_view_dims(extra_points, mirror_point)
         min_x, min_y, max_x, max_y = update_minmax(point, min_x, min_y, max_x, max_y)
     end
 
-    for _, point in pairs(extra_points) do
+    for _, point in ipairs(rawget(extra_points, 'points')) do
         min_x, min_y, max_x, max_y = update_minmax(point, min_x, min_y, max_x, max_y)
     end
 

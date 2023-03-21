@@ -6,6 +6,8 @@
 -- Must Haves
 -----------------------------
 -- Better UI, it's starting to get really crowded
+-- Right click when dragging center seems off
+-- Freeform shape seems to slow stuff, check needs_update?
 
 -- Should Haves
 -----------------------------
@@ -39,6 +41,9 @@ local guidm = require("gui.dwarfmode")
 local widgets = require("gui.widgets")
 local quickfort = reqscript("quickfort")
 local shapes = reqscript("internal/design/shapes")
+local Point = reqscript("internal/design/utilities").Point
+local Points = reqscript("internal/design/utilities").Points
+local What = reqscript("internal/design/utilities").What
 
 local tile_attrs = df.tiletype.attrs
 
@@ -287,6 +292,7 @@ function MarksPanel:update_mark_labels()
 
     local mouse_pos = dfhack.gui.getMousePos()
     if mouse_pos then
+        -- jcoskerTODO
         table.insert(label_text, string.format("Mouse: %d, %d, %d", mouse_pos.x, mouse_pos.y, mouse_pos.z))
     end
 
@@ -635,7 +641,7 @@ function GenericOptionsPanel:init()
                     self.design_panel.placing_extra.index = #self.design_panel.extra_points + 1
                 elseif #self.design_panel.marks then
                     local mouse_pos = dfhack.gui.getMousePos()
-                    if mouse_pos then table.insert(self.design_panel.extra_points, { x = mouse_pos.x, y = mouse_pos.y }) end
+                    if mouse_pos then table.insert(rawget(self.design_panel.extra_points, 'points'), Point(mouse_pos)) end
                 end
                 self.design_panel.needs_update = true
             end,
@@ -690,10 +696,10 @@ function GenericOptionsPanel:init()
             disabled = false,
             show_tooltip = true,
             on_activate = function()
-                self.design_panel.marks = {}
+                self.design_panel.marks:clear()
                 self.design_panel.placing_mark.active = true
                 self.design_panel.placing_mark.index = 1
-                self.design_panel.extra_points = {}
+                self.design_panel.extra_points:clear()
                 self.design_panel.prev_center = nil
                 self.design_panel.start_center = nil
                 self.design_panel.needs_update = true
@@ -718,7 +724,7 @@ function GenericOptionsPanel:init()
             show_tooltip = true,
             on_activate = function()
                 if self.design_panel.shape then
-                    self.design_panel.extra_points = {}
+                    self.design_panel.extra_points:clear()
                     self.design_panel.prev_center = nil
                     self.design_panel.start_center = nil
                     self.design_panel.placing_extra = { active = false, index = 0 }
@@ -1017,10 +1023,10 @@ Design.ATTRS {
     placing_mark = { active = true, index = 1, continue = true },
     prev_center = DEFAULT_NIL,
     start_center = DEFAULT_NIL,
-    extra_points = {},
+    extra_points = Points{},
     last_mouse_point = DEFAULT_NIL,
     needs_update = false,
-    marks = {},
+    marks = Points{},
     placing_mirror = false,
     mirror_point = DEFAULT_NIL,
     mirror = { horizontal = false, vertical = false },
@@ -1036,10 +1042,7 @@ function Design:shape_needs_update()
 
     local mouse_pos = dfhack.gui.getMousePos()
     if mouse_pos then
-        local mouse_moved = not self.last_mouse_point and mouse_pos or
-            (
-            self.last_mouse_point.x ~= mouse_pos.x or self.last_mouse_point.y ~= mouse_pos.y or
-                self.last_mouse_point.z ~= mouse_pos.z)
+        local mouse_moved = (not self.last_mouse_point and mouse_pos) or (self.last_mouse_point ~= Point(mouse_pos))
 
         if self.placing_mark.active and mouse_moved then
             return true
@@ -1060,7 +1063,7 @@ end
 function Design:get_pen(x, y, mousePos)
 
     local get_point = self.shape:get_point(x, y)
-    local mouse_over = (mousePos) and (x == mousePos.x and y == mousePos.y) or false
+    local mouse_over = (mousePos) and (Point{x = x, y = y} == Point(mousePos)) or false
 
     local drag_point = false
 
@@ -1080,12 +1083,12 @@ function Design:get_pen(x, y, mousePos)
     end
 
     for i, mark in ipairs(self.marks) do
-        if same_xy(mark, xy2pos(x, y)) then
+        if mark == Point{x = x, y = y} then
             drag_point = true
         end
     end
 
-    if self.mirror_point and same_xy(self.mirror_point, xy2pos(x, y)) then
+    if self.mirror_point and self.mirror_point == Point{x = x, y = y} then
         drag_point = true
     end
 
@@ -1362,10 +1365,12 @@ function Design:get_view_bounds()
     local min_z = self.marks[1].z
     local max_z = self.marks[1].z
 
-    local marks_plus_next = copyall(self.marks)
+    local marks_plus_next = Points{}
+    local p = copyall(rawget(self.marks, 'points'))
+    rawset(marks_plus_next, 'points', p) -- jcoskerTODO
     local mouse_pos = dfhack.gui.getMousePos()
     if mouse_pos then
-        table.insert(marks_plus_next, mouse_pos)
+        table.insert(rawget(marks_plus_next, 'points'), Point(mouse_pos))
     end
 
     for _, mark in ipairs(marks_plus_next) do
@@ -1451,59 +1456,43 @@ function Design:onRenderFrame(dc, rect)
         return self:get_pen(pos.x, pos.y, mouse_pos)
     end
 
-    if self.placing_mark.active and self.placing_mark.index then
-        self.marks[self.placing_mark.index] = mouse_pos
+    if self.placing_mark.active and self.placing_mark.index and mouse_pos then
+        self.marks[self.placing_mark.index] = Point(mouse_pos)
     end
 
-    -- Set main points
-    local points = copyall(self.marks)
 
     -- Set the pos of the currently moving extra point
     if self.placing_extra.active then
-        self.extra_points[self.placing_extra.index] = { x = mouse_pos.x, y = mouse_pos.y }
+        self.extra_points[self.placing_extra.index] = Point(mouse_pos)
     end
 
     if self.placing_mirror and mouse_pos then
-        if not self.mirror_point or (mouse_pos.x ~= self.mirror_point.x or mouse_pos.y ~= self.mirror_point.y) then
+        if not self.mirror_point or Point(mouse_pos) ~= self.mirror_point then
             self.needs_update = true
         end
-        self.mirror_point = mouse_pos
+        self.mirror_point = Point(mouse_pos)
     end
 
     -- Check if moving center, if so shift the shape by the delta between the previous and current points
     -- TODO clean this up
     if self.prev_center and
-        (
-        (self.shape.basic_shape and #self.marks == self.shape.max_points)
-            or (not self.shape.basic_shape and not self.placing_mark.active)
-        )
-        and mouse_pos and (
-        (self.prev_center.x ~= mouse_pos.x)
-            or (self.prev_center.y ~= mouse_pos.y)
-            or (self.prev_center.z ~= mouse_pos.z)
-        ) then
+        ( (self.shape.basic_shape and #self.marks == self.shape.max_points) or (not self.shape.basic_shape and not self.placing_mark.active))
+        and mouse_pos and self.prev_center ~= Point(mouse_pos) then
         self.needs_update = true
-        local transform = { x = mouse_pos.x - self.prev_center.x, y = mouse_pos.y - self.prev_center.y,
-            z = mouse_pos.z - self.prev_center.z }
 
-        for i, _ in ipairs(self.marks) do
-            self.marks[i].x = self.marks[i].x + transform.x
-            self.marks[i].y = self.marks[i].y + transform.y
-            self.marks[i].z = self.marks[i].z + transform.z
-        end
+        local transform = Point(mouse_pos) - self.prev_center
 
-        for i, point in ipairs(self.extra_points) do
-            self.extra_points[i].x = self.extra_points[i].x + transform.x
-            self.extra_points[i].y = self.extra_points[i].y + transform.y
-        end
+        self.marks:transform(transform)
+        self.extra_points:transform(transform)
 
         if self.mirror_point then
-            self.mirror_point.x = self.mirror_point.x + transform.x
-            self.mirror_point.y = self.mirror_point.y + transform.y
+            self.mirror_point = Point(self.mirror_point) + transform
         end
 
-        self.prev_center = mouse_pos
+        self.prev_center = Point(mouse_pos)
     end
+    -- Set main points
+    local points = copyall(rawget(self.marks, 'points'))
 
     if self.mirror_point then
         points = self:get_mirrored_points(points)
@@ -1511,7 +1500,7 @@ function Design:onRenderFrame(dc, rect)
 
     if self:shape_needs_update() then
         self.shape:update(points, self.extra_points)
-        self.last_mouse_point = mouse_pos
+        self.last_mouse_point = Point(mouse_pos)
         self.needs_update = false
     end
 
@@ -1530,7 +1519,7 @@ function Design:onRenderFrame(dc, rect)
 
     -- Show mouse guidelines
     if self.show_guides and mouse_pos then
-        local map_x, map_y, map_z = dfhack.maps.getTileSize()
+        local map_x, map_y, _ = dfhack.maps.getTileSize()
         local horiz_bounds = { x1 = 0, x2 = map_x, y1 = mouse_pos.y, y2 = mouse_pos.y, z1 = mouse_pos.z, z2 = mouse_pos.z }
         guidm.renderMapOverlay(function() return guide_tile_pen end, horiz_bounds)
         local vert_bounds = { x1 = mouse_pos.x, x2 = mouse_pos.x, y1 = 0, y2 = map_y, z1 = mouse_pos.z, z2 = mouse_pos.z }
@@ -1577,10 +1566,9 @@ function Design:onInput(keys)
 
     -- Secret shortcut to kill the panel if it becomes
     -- unresponsive during development, should not release
-    -- if keys.CUSTOM_M then
-    --     self.parent_view:dismiss()
-    --     return
-    -- end
+    if keys.CUSTOM_SHIFT_Q then
+        return true
+    end
 
     if keys.LEAVESCREEN or keys._MOUSE_R_DOWN then
         -- Close help window if open
@@ -1588,20 +1576,12 @@ function Design:onInput(keys)
 
         -- If center draggin, put the shape back to the original center
         if self.prev_center then
-            local transform = { x = self.start_center.x - self.prev_center.x,
-                y = self.start_center.y - self.prev_center.y,
-                z = self.start_center.z - self.prev_center.z }
+            -- jcoskerTODO
+            local transform = self.start_center.x - self.prev_center
 
-            for i, _ in ipairs(self.marks) do
-                self.marks[i].x = self.marks[i].x + transform.x
-                self.marks[i].y = self.marks[i].y + transform.y
-                self.marks[i].z = self.marks[i].z + transform.z
-            end
+            self.marks:transform(transform)
 
-            for i, point in ipairs(self.extra_points) do
-                self.extra_points[i].x = self.extra_points[i].x + transform.x
-                self.extra_points[i].y = self.extra_points[i].y + transform.y
-            end
+            self.extra_points:transform(transform)
 
             self.prev_center = nil
             self.start_center = nil
@@ -1612,7 +1592,7 @@ function Design:onInput(keys)
         -- If extra points, clear them and return
         if self.shape then
             if #self.extra_points > 0 or self.placing_extra.active then
-                self.extra_points = {}
+                self.extra_points:clear()
                 self.placing_extra.active = false
                 self.prev_center = nil
                 self.start_center = nil
@@ -1625,10 +1605,11 @@ function Design:onInput(keys)
 
         -- If marks are present, pop the last mark
         if #self.marks > 1 then
+            --jcoskerTODO
             self.placing_mark.index = #self.marks - ((self.placing_mark.active) and 1 or 0)
             self.placing_mark.active = true
             self.needs_update = true
-            table.remove(self.marks, #self.marks)
+            table.remove(rawget(self.marks, 'points'), #self.marks)
         else
             -- nothing left to remove, so dismiss
             self.parent_view:dismiss()
@@ -1651,16 +1632,16 @@ function Design:onInput(keys)
     if keys._MOUSE_L_DOWN and pos then
         -- TODO Refactor this a bit
         if self.shape.max_points and #self.marks == self.shape.max_points and self.placing_mark.active then
-            self.marks[self.placing_mark.index] = pos
+            self.marks[self.placing_mark.index] = Point(pos)
             self.placing_mark.index = self.placing_mark.index + 1
             self.placing_mark.active = false
             -- The statement after the or is to allow the 1x1 special case for easy doorways
             self.needs_update = true
-            if self.autocommit or (same_xy(self.marks[1], self.marks[2])) then
+            if self.autocommit or (self.marks[1] == self.marks[2]) then
                 self:commit()
             end
         elseif not self.placing_extra.active and self.placing_mark.active then
-            self.marks[self.placing_mark.index] = pos
+            self.marks[self.placing_mark.index] = Point(pos)
             if self.placing_mark.continue then
                 self.placing_mark.index = self.placing_mark.index + 1
             else
@@ -1672,7 +1653,7 @@ function Design:onInput(keys)
             self.needs_update = true
             self.placing_extra.active = false
         elseif self.placing_mirror then
-            self.mirror_point = pos
+            self.mirror_point = Point(pos)
             self.placing_mirror = false
             self.needs_update = true
         else
@@ -1689,16 +1670,16 @@ function Design:onInput(keys)
                 }
 
                 for _, info in ipairs(corner_drag_info) do
-                    if same_xy(pos, info.pos) and self.shape.drag_corners[info.corner] then
-                        self.marks[1] = xyz2pos(info.opposite_x, info.opposite_y, self.marks[1].z)
-                        table.remove(self.marks, 2)
+                    if Point(pos) == Point(info.pos) and self.shape.drag_corners[info.corner] then
+                        self.marks[1] = Point{x = info.opposite_x, y = info.opposite_y, z = self.marks[1].z}
+                        table.remove(rawget(self.marks, 'points'), 2) -- jcoskerTODO
                         self.placing_mark = { active = true, index = 2 }
                         break
                     end
                 end
             else
                 for i, point in ipairs(self.marks) do
-                    if same_xy(pos, point) then
+                    if Point(pos) == point then
                         self.placing_mark = { active = true, index = i, continue = false }
                     end
                 end
@@ -1706,7 +1687,7 @@ function Design:onInput(keys)
 
             -- Clicking an extra point
             for i = 1, #self.extra_points do
-                if same_xy(pos, self.extra_points[i]) then
+                if Point(pos) == self.extra_points[i] then
                     self.placing_extra = { active = true, index = i }
                     self.needs_update = true
                     return true
@@ -1716,9 +1697,9 @@ function Design:onInput(keys)
             -- Clicking center point
             if #self.marks > 0 then
                 local center_x, center_y = self.shape:get_center()
-                if same_xy(pos, xy2pos(center_x, center_y)) and not self.prev_center then
-                    self.start_center = pos
-                    self.prev_center = pos
+                if Point(pos) == Point{ x = center_x, y = center_y} and not self.prev_center then
+                    self.start_center = Point(pos)
+                    self.prev_center = Point(pos)
                     return true
                 elseif self.prev_center then
                     self.start_center = nil
@@ -1727,7 +1708,7 @@ function Design:onInput(keys)
                 end
             end
 
-            if same_xy(self.mirror_point, pos) then
+            if self.mirror_point == Point(pos) then
                 self.placing_mirror = true
             end
         end
@@ -1757,10 +1738,10 @@ function Design:get_designation(x, y, z)
         if z == 0 then
             return stairs_bottom_type == "auto" and "u" or stairs_bottom_type
         elseif view_bounds and z == math.abs(view_bounds.z1 - view_bounds.z2) then
-            local pos = xyz2pos(view_bounds.x1 + x, view_bounds.y1 + y, view_bounds.z1 + z)
+            local pos = Point{ x = view_bounds.x1 + x, y = view_bounds.y1 + y, z = view_bounds.z1 + z}
             local tile_type = dfhack.maps.getTileType(pos)
             local tile_shape = tile_type and tile_attrs[tile_type].shape or nil
-            local designation = dfhack.maps.getTileFlags(pos)
+            local designation = dfhack.maps.getTileFlags(pos) -- jcoskerTODO check
 
             -- If top of the view_bounds is down stair, 'auto' should change it to up/down to match vanilla stair logic
             local up_or_updown_dug = (
@@ -1840,7 +1821,7 @@ function Design:commit()
     local grid = self.shape:transform(0, 0)
 
     -- Special case for 1x1 to ease doorway marking
-    if same_xy(top_left, bot_right) then
+    if Point(top_left) == Point(bot_right) then
         grid = {}
         grid[0] = {}
         grid[0][0] = true
@@ -1853,10 +1834,10 @@ function Design:commit()
     if (self.autocommit and self.shape.basic_shape) or
         (not self.shape.basic_shape and
             (self.placing_mark.active or (self.autocommit and self.shape.max_points == #self.marks))) then
-        self.marks = {}
+        self.marks:clear()
         self.placing_mark = { active = true, index = 1, continue = true }
         self.placing_extra = { active = false, index = nil }
-        self.extra_points = {}
+        self.extra_points:clear()
         self.prev_center = nil
         self.start_center = nil
     end
