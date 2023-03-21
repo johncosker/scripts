@@ -1,6 +1,8 @@
 -- Utilities for design.lua
 --@ module = true
 
+local to_pen = dfhack.pen.parse
+
 -- Point class used by gui/design
 Point = defclass(Point)
 Point.ATTRS{
@@ -22,7 +24,19 @@ function Point:check_valid(point)
     if point.z and not type(point.y) == "number" then error("Invalid value for z, must be a number") end
 end
 
+function Point:is_mouse_over()
+	local pos = dfhack.gui.getMousePos()
+	if not pos then return false end
+
+	return Point(pos) == self
+end
+
 function Point:__call(args)
+    if type(args[1]) == "table" then
+        if args[1].x then self.x = args[1].x end
+        if args[1].y then self.y = args[1].y end
+        if args[1].z then self.z = args[1].z end
+    end
 end
 
 function Point:__tostring()
@@ -77,7 +91,7 @@ end
 -- Stack-like collection for points
 Points = defclass(Points)
 Points.ATTRS{
-	points = DEFAULT_NIL
+	-- points = DEFAULT_NIL
 }
 
 function Points:init()
@@ -144,5 +158,150 @@ function Points:__newindex(key, value)
 		return
 	end
 
-	error("Points class isn't meant to be modified.")
+	-- if key == 'points' then self.points = value return end
+
+	error("Points class table not meant to be modified during runtime.")
+end
+
+local CURSORS = {
+    INSIDE = { 1, 2 },
+    NORTH = { 1, 1 },
+    N_NUB = { 3, 2 },
+    S_NUB = { 4, 2 },
+    W_NUB = { 3, 1 },
+    E_NUB = { 5, 1 },
+    NE = { 2, 1 },
+    NW = { 0, 1 },
+    WEST = { 0, 2 },
+    EAST = { 2, 2 },
+    SW = { 0, 3 },
+    SOUTH = { 1, 3 },
+    SE = { 2, 3 },
+    VERT_NS = { 3, 3 },
+    VERT_EW = { 4, 1 },
+    POINT = { 4, 3 },
+}
+
+-- Bit positions to use for keys in PENS table
+local PEN_MASK = {
+    NORTH = 1,
+    SOUTH = 2,
+    EAST = 3,
+    WEST = 4,
+    DRAG_POINT = 5,
+    MOUSEOVER = 6,
+    INSHAPE = 7,
+    EXTRA_POINT = 8,
+}
+
+PenCache = defclass(PenCache)
+PenCache.ATTRS = {
+    is_drag_pt_fn = DEFAULT_NIL,
+    is_extra_pt_fn = DEFAULT_NIL,
+    get_arr_fn = DEFAULT_NIL,
+    pens = {}
+}
+
+function PenCache:init()
+end
+
+-- Generate a bit field to store as keys in PENS
+function PenCache:gen_pen_key(n, s, e, w, is_corner, is_mouse_over, inshape, extra_point)
+    local ret = 0
+    if n then ret = ret + (1 << PEN_MASK.NORTH) end
+    if s then ret = ret + (1 << PEN_MASK.SOUTH) end
+    if e then ret = ret + (1 << PEN_MASK.EAST) end
+    if w then ret = ret + (1 << PEN_MASK.WEST) end
+    if is_corner then ret = ret + (1 << PEN_MASK.DRAG_POINT) end
+    if is_mouse_over then ret = ret + (1 << PEN_MASK.MOUSEOVER) end
+    if inshape then ret = ret + (1 << PEN_MASK.INSHAPE) end
+    if extra_point then ret = ret + (1 << PEN_MASK.EXTRA_POINT) end
+
+    return ret
+end
+
+-- return the pen, alter based on if we want to display a corner and a mouse over corner
+function PenCache:make_pen(direction, is_corner, is_mouse_over, inshape, extra_point)
+
+    local color = COLOR_GREEN
+    local ycursor_mod = 0
+    if not extra_point then
+        if is_corner then
+            color = COLOR_CYAN
+            ycursor_mod = ycursor_mod + 6
+            if is_mouse_over then
+                color = COLOR_MAGENTA
+                ycursor_mod = ycursor_mod + 3
+            end
+        end
+    elseif extra_point then
+        ycursor_mod = ycursor_mod + 15
+        color = COLOR_LIGHTRED
+
+        if is_mouse_over then
+            color = COLOR_RED
+            ycursor_mod = ycursor_mod + 3
+        end
+
+    end
+    return to_pen {
+        ch = inshape and "X" or "o",
+        fg = color,
+        tile = dfhack.screen.findGraphicsTile(
+            "CURSORS",
+            direction[1],
+            direction[2] + ycursor_mod
+        ),
+    }
+end
+
+function PenCache:get_point(point)
+    return self:get_arr_fn()[point.x] and self:get_arr_fn()[point.x][point.y]
+end
+
+function PenCache:get_pen(point)
+    point = Point(point)
+    local n, w, e, s = false, false, false, false
+    if self:get_point(point) then
+        if point.y == 0 or not self:get_point(point - {y = 1}) then n = true end
+        if point.x == 0 or not self:get_point(point - {x = 1}) then w = true end
+        if not self:get_point(point + {x = 1}) then e = true end
+        if not self:get_point(point + {y = 1}) then s = true end
+    end
+
+    local arr = self:get_arr_fn()
+
+    local get_point = arr[point.x] and arr[point.x][point.y]
+    -- Get the bit field to use as a key for the PENS map
+    local pen_key = self:gen_pen_key(n, s, e, w, self.is_drag_pt_fn(point), point:is_mouse_over(), get_point, self.is_extra_pt_fn(point))
+
+
+    -- Determine the cursor to use based on the input parameters
+    local cursor = nil
+    if pen_key and not self.pens[pen_key] then
+        if get_point and not n and not w and not e and not s then cursor = CURSORS.INSIDE
+        elseif get_point and n and w and not e and not s then cursor = CURSORS.NW
+        elseif get_point and n and not w and not e and not s then cursor = CURSORS.NORTH
+        elseif get_point and n and e and not w and not s then cursor = CURSORS.NE
+        elseif get_point and not n and w and not e and not s then cursor = CURSORS.WEST
+        elseif get_point and not n and not w and e and not s then cursor = CURSORS.EAST
+        elseif get_point and not n and w and not e and s then cursor = CURSORS.SW
+        elseif get_point and not n and not w and not e and s then cursor = CURSORS.SOUTH
+        elseif get_point and not n and not w and e and s then cursor = CURSORS.SE
+        elseif get_point and n and w and e and not s then cursor = CURSORS.N_NUB
+        elseif get_point and n and not w and e and s then cursor = CURSORS.E_NUB
+        elseif get_point and n and w and not e and s then cursor = CURSORS.W_NUB
+        elseif get_point and not n and w and e and s then cursor = CURSORS.S_NUB
+        elseif get_point and not n and w and e and not s then cursor = CURSORS.VERT_NS
+        elseif get_point and n and not w and not e and s then cursor = CURSORS.VERT_EW
+        elseif get_point and n and w and e and s then cursor = CURSORS.POINT
+        elseif self.is_drag_pt_fn(point) and not get_point then cursor = CURSORS.INSIDE
+        elseif self.is_extra_pt_fn(point) then cursor = CURSORS.INSIDE
+        else cursor = nil
+        end
+    end
+
+    if cursor then self.pens[pen_key] = self:make_pen(cursor, self.is_drag_pt_fn(point), point:is_mouse_over(), get_point, self.is_extra_pt_fn(point)) end
+
+    return self.pens[pen_key]
 end

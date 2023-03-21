@@ -1,6 +1,9 @@
 -- shape definitions for gui/dig
 --@ module = true
 
+local Point = reqscript("internal/design/utilities").Point
+local Points = reqscript("internal/design/utilities").Points
+
 if not dfhack_flags.module then
     qerror("this script cannot be called directly")
 end
@@ -60,7 +63,7 @@ function Shape:get_point_dims()
         max_y = math.max(max_y, point.y)
     end
 
-    return { x = min_x, y = min_y }, { x = max_x, y = max_y }
+    return Point{ x = min_x, y = min_y }, Point{ x = max_x, y = max_y }
 end
 
 -- Get dimensions as defined by the array of the shape
@@ -161,8 +164,9 @@ function Shape:get_center()
     -- Simple way to get the center defined by the point dims
     if #self.points == 0 then return nil, nil end
     local top_left, bot_right = self:get_point_dims()
-    return math.floor((bot_right.x - top_left.x) / 2) + top_left.x,
-        math.floor((bot_right.y - top_left.y) / 2) + top_left.y
+    --jcoskerTODO
+    return Point{x = math.floor((bot_right.x - top_left.x) / 2) + top_left.x,
+        y = math.floor((bot_right.y - top_left.y) / 2) + top_left.y}
 
 end
 
@@ -194,7 +198,7 @@ function Shape:update(points)
     end
 end
 
-function Shape:get_point(x, y) if self.arr[x] and self.arr[x][y] then return true else return false end end
+function Shape:get_point(point) if self.arr[point.x] and self.arr[point.x][point.y] then return true else return false end end
 
 function Shape:has_point(x, y)
     -- This class isn't meant to be used directly
