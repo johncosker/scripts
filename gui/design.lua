@@ -641,7 +641,7 @@ function GenericOptionsPanel:init()
                     self.design_panel.placing_extra.index = #self.design_panel.extra_points + 1
                 elseif #self.design_panel.marks then
                     local mouse_pos = dfhack.gui.getMousePos()
-                    if mouse_pos then table.insert(rawget(self.design_panel.extra_points, 'points'), Point(mouse_pos)) end
+                    if mouse_pos then table.insert(self.design_panel.extra_points.points, Point(mouse_pos)) end
                 end
                 self.design_panel.needs_update = true
             end,
@@ -1366,11 +1366,11 @@ function Design:get_view_bounds()
     local max_z = self.marks[1].z
 
     local marks_plus_next = Points{}
-    local p = copyall(rawget(self.marks, 'points'))
-    rawset(marks_plus_next, 'points', p) -- jcoskerTODO
+    local p = self.marks:copy_points()
+    marks_plus_next.points = p -- jcoskerTODO
     local mouse_pos = dfhack.gui.getMousePos()
     if mouse_pos then
-        table.insert(rawget(marks_plus_next, 'points'), Point(mouse_pos))
+        table.insert(marks_plus_next.points, Point(mouse_pos))
     end
 
     for _, mark in ipairs(marks_plus_next) do
@@ -1492,7 +1492,7 @@ function Design:onRenderFrame(dc, rect)
         self.prev_center = Point(mouse_pos)
     end
     -- Set main points
-    local points = copyall(rawget(self.marks, 'points'))
+    local points = self.marks:copy_points()
 
     if self.mirror_point then
         points = self:get_mirrored_points(points)
@@ -1609,7 +1609,7 @@ function Design:onInput(keys)
             self.placing_mark.index = #self.marks - ((self.placing_mark.active) and 1 or 0)
             self.placing_mark.active = true
             self.needs_update = true
-            table.remove(rawget(self.marks, 'points'), #self.marks)
+            table.remove(self.marks.points)
         else
             -- nothing left to remove, so dismiss
             self.parent_view:dismiss()
@@ -1672,7 +1672,7 @@ function Design:onInput(keys)
                 for _, info in ipairs(corner_drag_info) do
                     if Point(pos) == Point(info.pos) and self.shape.drag_corners[info.corner] then
                         self.marks[1] = Point{x = info.opposite_x, y = info.opposite_y, z = self.marks[1].z}
-                        table.remove(rawget(self.marks, 'points'), 2) -- jcoskerTODO
+                        table.remove(self.marks.points, 2) -- jcoskerTODO
                         self.placing_mark = { active = true, index = 2 }
                         break
                     end
@@ -1850,7 +1850,7 @@ function Design:get_mirrored_points(points)
     local mirror_diag_value = self.subviews.mirror_diag_label:getOptionValue()
     local mirror_vert_value = self.subviews.mirror_vert_label:getOptionValue()
 
-    local mirrored_points = {}
+    local mirrored_points = Points{}
     for i = #points, 1, -1 do
         local point = points[i]
         -- 1 maps to "Off"
@@ -1866,7 +1866,7 @@ function Design:get_mirrored_points(points)
                 end
             end
 
-            table.insert(mirrored_points, { z = point.z, x = point.x, y = mirrored_y })
+            table.insert(mirrored_points.points, Point{ z = point.z, x = point.x, y = mirrored_y })
         end
     end
 
@@ -1886,7 +1886,7 @@ function Design:get_mirrored_points(points)
                 end
             end
 
-            table.insert(mirrored_points, { z = point.z, x = mirrored_x, y = mirrored_y })
+            table.insert(mirrored_points.points, Point{ z = point.z, x = mirrored_x, y = mirrored_y })
         end
     end
 
@@ -1904,12 +1904,12 @@ function Design:get_mirrored_points(points)
                 end
             end
 
-            table.insert(mirrored_points, { z = point.z, x = mirrored_x, y = point.y })
+            table.insert(mirrored_points.points, Point{ z = point.z, x = mirrored_x, y = point.y })
         end
     end
 
     for i, point in ipairs(mirrored_points) do
-        table.insert(points, mirrored_points[i])
+        table.insert(points.points, mirrored_points[i])
     end
 
     return points

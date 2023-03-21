@@ -77,6 +77,7 @@ end
 -- Stack-like collection for points
 Points = defclass(Points)
 Points.ATTRS{
+	points = DEFAUL_NIL
 }
 
 function Points:init()
@@ -85,6 +86,10 @@ end
 
 function Points:clear()
 	rawset(self, 'points', {})
+end
+
+function Points:copy_points()
+	return copyall(rawget(self, 'points'))
 end
 
 function Points:transform(transform)
