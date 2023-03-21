@@ -641,7 +641,7 @@ function GenericOptionsPanel:init()
                     self.design_panel.placing_extra.index = #self.design_panel.extra_points + 1
                 elseif #self.design_panel.marks then
                     local mouse_pos = dfhack.gui.getMousePos()
-                    if mouse_pos then table.insert(self.design_panel.extra_points.points, Point(mouse_pos)) end
+                    if mouse_pos then self.design_panel.extra_points:insert(Point(mouse_pos)) end
                 end
                 self.design_panel.needs_update = true
             end,
@@ -701,6 +701,7 @@ function GenericOptionsPanel:init()
                 self.design_panel.placing_mark.index = 1
                 self.design_panel.extra_points:clear()
                 self.design_panel.prev_center = nil
+                self.design_panel.mirror_point = nil
                 self.design_panel.start_center = nil
                 self.design_panel.needs_update = true
             end,
@@ -1293,17 +1294,17 @@ function Design:add_shape_options()
 end
 
 function Design:on_transform(val)
-    local center_x, center_y = self.shape:get_center()
+    local center_x, center_y = self.shape:get_center() -- jcoskerTODO
 
     -- Save mirrored points first
     if self.mirror_point then
-        local points = self:get_mirrored_points(self.marks)
-        self.marks = points
+        self.marks = self:get_mirrored_points(self.marks)
         self.mirror_point = nil
     end
 
-    -- Transform marks
+    -- Transform marks jcoskerTODO
     for i, mark in ipairs(self.marks) do
+        -- mark = self.marks[i]
         local x, y = mark.x, mark.y
         if val == 'cw' then
             x, y = center_x - (y - center_y), center_y + (x - center_x)
@@ -1314,11 +1315,12 @@ function Design:on_transform(val)
         elseif val == 'flipv' then
             y = center_y - (y - center_y)
         end
-        self.marks[i] = { x = math.floor(x + 0.5), y = math.floor(y + 0.5), z = self.marks[i].z }
+        self.marks[i] = Point{ x = math.floor(x + 0.5), y = math.floor(y + 0.5), z = self.marks[i].z }
     end
 
     -- Transform extra points
     for i, point in ipairs(self.extra_points) do
+        -- point = self.extra_points[i]
         local x, y = point.x, point.y
         if val == 'cw' then
             x, y = center_x - (y - center_y), center_y + (x - center_x)
@@ -1329,7 +1331,7 @@ function Design:on_transform(val)
         elseif val == 'flipv' then
             y = center_y - (y - center_y)
         end
-        self.extra_points[i] = { x = math.floor(x + 0.5), y = math.floor(y + 0.5), z = self.extra_points[i].z }
+        self.extra_points[i] = Point{ x = math.floor(x + 0.5), y = math.floor(y + 0.5), z = self.extra_points[i].z }
     end
 
     -- Calculate center point after transformation
@@ -1337,19 +1339,22 @@ function Design:on_transform(val)
     local new_center_x, new_center_y = self.shape:get_center()
 
     -- Calculate delta between old and new center points
-    local delta_x = center_x - new_center_x
-    local delta_y = center_y - new_center_y
+    -- local delta_x = center_x - new_center_x
+    -- local delta_y = center_y - new_center_y
+    local delta = {x = center_x - new_center_x, y = center_y - new_center_y} --jcoskerTODO
 
     -- Adjust marks and extra points based on delta
-    for i, mark in ipairs(self.marks) do
-        self.marks[i].x = self.marks[i].x + delta_x
-        self.marks[i].y = self.marks[i].y + delta_y
-    end
+    -- for i, mark in ipairs(self.marks) do
+    --     self.marks[i].x = self.marks[i].x + delta_x
+    --     self.marks[i].y = self.marks[i].y + delta_y
+    -- end
+    self.marks:transform(delta)
 
-    for i, point in ipairs(self.extra_points) do
-        self.extra_points[i].x = self.extra_points[i].x + delta_x
-        self.extra_points[i].y = self.extra_points[i].y + delta_y
-    end
+    -- for i, point in ipairs(self.extra_points) do
+    --     self.extra_points[i].x = self.extra_points[i].x + delta_x
+    --     self.extra_points[i].y = self.extra_points[i].y + delta_y
+    -- end
+    self.extra_points:transform(delta)
 
     self:updateLayout()
     self.needs_update = true
@@ -1366,11 +1371,11 @@ function Design:get_view_bounds()
     local max_z = self.marks[1].z
 
     local marks_plus_next = Points{}
-    local p = self.marks:copy_points()
-    marks_plus_next.points = p -- jcoskerTODO
+    local p = self.marks:copy()
+    marks_plus_next = self.marks:copy() -- jcoskerTODO
     local mouse_pos = dfhack.gui.getMousePos()
     if mouse_pos then
-        table.insert(marks_plus_next.points, Point(mouse_pos))
+        marks_plus_next:insert(Point(mouse_pos))
     end
 
     for _, mark in ipairs(marks_plus_next) do
@@ -1492,7 +1497,7 @@ function Design:onRenderFrame(dc, rect)
         self.prev_center = Point(mouse_pos)
     end
     -- Set main points
-    local points = self.marks:copy_points()
+    local points = self.marks:copy()
 
     if self.mirror_point then
         points = self:get_mirrored_points(points)
@@ -1510,7 +1515,6 @@ function Design:onRenderFrame(dc, rect)
     local bounds = self:get_view_bounds()
     if self.shape and bounds then
         local top_left, bot_right = self.shape:get_view_dims(self.extra_points, self.mirror_point)
-        if not top_left or not bot_right then return end
         bounds.x1 = top_left.x
         bounds.x2 = bot_right.x
         bounds.y1 = top_left.y
@@ -1609,7 +1613,7 @@ function Design:onInput(keys)
             self.placing_mark.index = #self.marks - ((self.placing_mark.active) and 1 or 0)
             self.placing_mark.active = true
             self.needs_update = true
-            table.remove(self.marks.points)
+            self.marks:remove()
         else
             -- nothing left to remove, so dismiss
             self.parent_view:dismiss()
@@ -1672,7 +1676,7 @@ function Design:onInput(keys)
                 for _, info in ipairs(corner_drag_info) do
                     if Point(pos) == Point(info.pos) and self.shape.drag_corners[info.corner] then
                         self.marks[1] = Point{x = info.opposite_x, y = info.opposite_y, z = self.marks[1].z}
-                        table.remove(self.marks.points, 2) -- jcoskerTODO
+                        self.marks:remove(2) -- jcoskerTODO
                         self.placing_mark = { active = true, index = 2 }
                         break
                     end
@@ -1866,7 +1870,7 @@ function Design:get_mirrored_points(points)
                 end
             end
 
-            table.insert(mirrored_points.points, Point{ z = point.z, x = point.x, y = mirrored_y })
+            mirrored_points:insert(Point{ z = point.z, x = point.x, y = mirrored_y })
         end
     end
 
@@ -1886,7 +1890,7 @@ function Design:get_mirrored_points(points)
                 end
             end
 
-            table.insert(mirrored_points.points, Point{ z = point.z, x = mirrored_x, y = mirrored_y })
+            mirrored_points:insert(Point{ z = point.z, x = mirrored_x, y = mirrored_y })
         end
     end
 
@@ -1904,12 +1908,12 @@ function Design:get_mirrored_points(points)
                 end
             end
 
-            table.insert(mirrored_points.points, Point{ z = point.z, x = mirrored_x, y = point.y })
+            mirrored_points:insert(Point{ z = point.z, x = mirrored_x, y = point.y })
         end
     end
 
     for i, point in ipairs(mirrored_points) do
-        table.insert(points.points, mirrored_points[i])
+        points:insert(mirrored_points[i])
     end
 
     return points

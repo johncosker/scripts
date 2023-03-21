@@ -108,11 +108,11 @@ function Shape:get_view_dims(extra_points, mirror_point)
         end
     end
 
-    for _, point in pairs(self.points) do
+    for _, point in ipairs(self.points) do
         min_x, min_y, max_x, max_y = update_minmax(point, min_x, min_y, max_x, max_y)
     end
 
-    for _, point in ipairs(rawget(extra_points, 'points')) do
+    for _, point in ipairs(extra_points) do
         min_x, min_y, max_x, max_y = update_minmax(point, min_x, min_y, max_x, max_y)
     end
 
@@ -170,7 +170,7 @@ end
 -- Can be overridden for more complex shapes
 function Shape:update(points)
     self.num_tiles = 0
-    self.points = copyall(points)
+    self.points = points:copy()
     self.arr = {}
     if #points < self.min_points then return end
     local top_left, bot_right = self:get_point_dims()
@@ -514,7 +514,7 @@ end
 
 function Line:update(points, extra_points)
     self.num_tiles = 0
-    self.points = copyall(points)
+    self.points = points:copy()
     local top_left, bot_right = self:get_point_dims()
     self.arr = {}
     self.height = bot_right.x - top_left.x
@@ -585,7 +585,7 @@ end
 
 function FreeForm:update(points, extra_points)
     self.num_tiles = 0
-    self.points = copyall(points)
+    self.points = points:copy()
     self.arr = {}
     if #points < self.min_points then return end
     local top_left, bot_right = self:get_point_dims()

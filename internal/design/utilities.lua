@@ -33,7 +33,7 @@ function Point:get_add_sub_table(arg)
     local t_other = {x = 0, y = 0, z = 0}
 
     if type(arg) == "number" then
-        t_other = Point{x =  arg, y = arg, z = arg}
+        t_other = Point{x =  arg, y = arg} -- As of now we don't want to add anything to z unless explicit
     elseif type(arg) == "table" then
         if not (arg.x ~= nil or arg.y ~= nil or arg.z ~= nil) then
             error("Adding table that doesn't have x, y or z values.")
@@ -77,7 +77,7 @@ end
 -- Stack-like collection for points
 Points = defclass(Points)
 Points.ATTRS{
-	points = DEFAUL_NIL
+	points = DEFAULT_NIL
 }
 
 function Points:init()
@@ -88,14 +88,37 @@ function Points:clear()
 	rawset(self, 'points', {})
 end
 
-function Points:copy_points()
-	return copyall(rawget(self, 'points'))
-end
-
 function Points:transform(transform)
 	for i, point in ipairs(self.points) do
 		self.points[i] = point + transform
 	end
+end
+
+function Points:insert(index)
+	if index then
+		table.insert(self.points, index)
+	else
+		table.insert(self.points)
+	end
+end
+
+function Points:remove(index)
+	if index then
+		table.remove(self.points, index)
+	else
+		table.remove(self.points)
+	end
+end
+
+function Points:copy()
+	local copy = Points{}
+	for _, point in ipairs(self.points) do
+		copy:insert(point)
+	end
+	local meta_table = getmetatable(self)
+	setmetatable(copy, meta_table)
+
+	return copy
 end
 
 function Points:__len()
