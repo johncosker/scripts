@@ -131,7 +131,7 @@ function Shape:points_to_string(points)
     local output = ""
     local sep = ""
     for _, point in ipairs(points) do
-        output = output .. sep .. string.format("(%d, %d)", point.x, point.y)
+        output = output..sep..string.format("(%d, %d)", point.x, point.y)
         sep = ", "
     end
 
@@ -517,6 +517,7 @@ function Line:quadratic_bezier(x0, y0, x1, y1, bezier_point1, thickness)
 end
 
 function Line:update(points, extra_points)
+    print("Drawing Line")
     self.num_tiles = 0
     self.points = points:copy()
     local top_left, bot_right = self:get_point_dims()
