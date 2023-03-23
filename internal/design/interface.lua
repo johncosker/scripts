@@ -450,7 +450,7 @@ function GenericOptionsPanel:init()
                     self.design_panel.prev_center = nil
                     self.design_panel.start_center = nil
                     self.design_panel.placing_extra = { active = false, index = 0 }
-                    self.design_panel:updateLayout()
+--                    self.design_panel:updateLayout()
                     self.design_panel.needs_update = true
                 end
             end,
@@ -515,7 +515,7 @@ function GenericOptionsPanel:init()
                 }
             },
             disabled = false,
-            on_change = function(new, old) self.design_panel:updateLayout() end,
+--            on_change = function(new, old) self.design_panel:updateLayout() end,
         },
         widgets.ResizingPanel {
             view_id = 'stairs_type_panel',
@@ -599,7 +599,7 @@ function GenericOptionsPanel:init()
             disabled = false,
             on_activate = function()
                 self.design_panel.prio = self.design_panel.prio - 1
-                self.design_panel:updateLayout()
+--                self.design_panel:updateLayout()
                 self.design_panel.needs_update = true
             end,
         },
@@ -613,7 +613,7 @@ function GenericOptionsPanel:init()
             disabled = false,
             on_activate = function()
                 self.design_panel.prio = self.design_panel.prio + 1
-                self.design_panel:updateLayout()
+--                self.design_panel:updateLayout()
                 self.design_panel.needs_update = true
             end,
         },
@@ -659,5 +659,5 @@ function GenericOptionsPanel:change_shape(new, old)
     end
     self.design_panel:add_shape_options()
     self.design_panel.needs_update = true
-    self.design_panel:updateLayout()
+--    self.design_panel:updateLayout()
 end

@@ -47,7 +47,7 @@ local interface = reqscript("internal/design/interface")
 local tile_attrs = df.tiletype.attrs
 local Point = utilities.Point
 local Points = utilities.Points
-local PenCache = utilities.PenCache
+-- local PenCache = utilities.PenCache
 local to_pen = dfhack.pen.parse
 
 local guide_tile_pen = to_pen {
@@ -253,6 +253,44 @@ function DesignDebugWindow:init()
     end
 end
 
+local CURSORS = {
+    INSIDE = { 1, 2 },
+    NORTH = { 1, 1 },
+    N_NUB = { 3, 2 },
+    S_NUB = { 4, 2 },
+    W_NUB = { 3, 1 },
+    E_NUB = { 5, 1 },
+    NE = { 2, 1 },
+    NW = { 0, 1 },
+    WEST = { 0, 2 },
+    EAST = { 2, 2 },
+    SW = { 0, 3 },
+    SOUTH = { 1, 3 },
+    SE = { 2, 3 },
+    VERT_NS = { 3, 3 },
+    VERT_EW = { 4, 1 },
+    POINT = { 4, 3 },
+}
+
+-- Bit positions to use for keys in PENS table
+local PEN_MASK = {
+    NORTH = 1,
+    SOUTH = 2,
+    EAST = 3,
+    WEST = 4,
+    DRAG_POINT = 5,
+    MOUSEOVER = 6,
+    INSHAPE = 7,
+    EXTRA_POINT = 8,
+}
+
+-- Populated dynamically as needed
+-- The pens will be stored with keys corresponding to the directions passed to gen_pen_key()
+local PENS = {}
+-- Get the pen to use when drawing a type of tile based on it's position in the shape and
+-- neighboring tiles. The first time a certain tile type needs to be drawn, it's pen
+-- is generated and stored in PENS. On subsequent calls, the cached pen will be used for
+-- other tiles with the same position/direction
 --
 -- Design
 --
@@ -289,6 +327,102 @@ Design.ATTRS {
     show_guides = true
 }
 
+function Design:get_pen(x, y, mousePos)
+    local point = Point{x = x, y = y}
+    local get_point = self.shape:get_point(point)
+    local mouse_over = (mousePos) and (x == mousePos.x and y == mousePos.y) or false
+
+    local drag_point = false
+
+    -- Basic shapes are bounded by rectangles and therefore can have corner drag points
+    -- even if they're not real points in the shape
+    if #self.marks >= self.shape.min_points and self.shape.basic_shape then
+        local shape_top_left, shape_bot_right = self.shape:get_point_dims()
+        if x == shape_top_left.x and y == shape_top_left.y and self.shape.drag_corners.nw then
+            drag_point = true
+        elseif x == shape_bot_right.x and y == shape_top_left.y and self.shape.drag_corners.ne then
+            drag_point = true
+        elseif x == shape_top_left.x and y == shape_bot_right.y and self.shape.drag_corners.sw then
+            drag_point = true
+        elseif x == shape_bot_right.x and y == shape_bot_right.y and self.shape.drag_corners.se then
+            drag_point = true
+        end
+    end
+
+    for i, mark in ipairs(self.marks) do
+        if mark == point then
+            drag_point = true
+        end
+    end
+
+    if self.mirror_point and self.mirror_point == point then
+        drag_point = true
+    end
+
+    -- Is there an extra point
+    local extra_point = false
+    for i, e_point in ipairs(self.extra_points) do
+        if point == e_point then
+            extra_point = true
+            break
+        end
+    end
+
+    -- Show center point if both marks are set
+    if (self.shape.basic_shape and #self.marks == self.shape.max_points) or
+        (not self.shape.basic_shape and not self.placing_mark.active and #self.marks > 0) then
+        local center = self.shape:get_center()
+
+        if point == center then
+            extra_point = true
+        end
+    end
+
+
+    local n, w, e, s = false, false, false, false
+    if self.shape:get_point(point) then
+        if y == 0 or not self.shape:get_point(Point{x = x, y = y - 1}) then n = true end
+        if x == 0 or not self.shape:get_point(Point{x = x - 1, y = y}) then w = true end
+        if not self.shape:get_point(Point{x = x + 1, y = y}) then e = true end
+        if not self.shape:get_point(Point{x = x, y = y + 1}) then s = true end
+    end
+
+    -- Get the bit field to use as a key for the PENS map
+    local pen_key = self:gen_pen_key(n, s, e, w, drag_point, mouse_over, get_point, extra_point)
+
+
+    -- Determine the cursor to use based on the input parameters
+    local cursor = nil
+    if pen_key and not PENS[pen_key] then
+        if get_point and not n and not w and not e and not s then cursor = CURSORS.INSIDE
+        elseif get_point and n and w and not e and not s then cursor = CURSORS.NW
+        elseif get_point and n and not w and not e and not s then cursor = CURSORS.NORTH
+        elseif get_point and n and e and not w and not s then cursor = CURSORS.NE
+        elseif get_point and not n and w and not e and not s then cursor = CURSORS.WEST
+        elseif get_point and not n and not w and e and not s then cursor = CURSORS.EAST
+        elseif get_point and not n and w and not e and s then cursor = CURSORS.SW
+        elseif get_point and not n and not w and not e and s then cursor = CURSORS.SOUTH
+        elseif get_point and not n and not w and e and s then cursor = CURSORS.SE
+        elseif get_point and n and w and e and not s then cursor = CURSORS.N_NUB
+        elseif get_point and n and not w and e and s then cursor = CURSORS.E_NUB
+        elseif get_point and n and w and not e and s then cursor = CURSORS.W_NUB
+        elseif get_point and not n and w and e and s then cursor = CURSORS.S_NUB
+        elseif get_point and not n and w and e and not s then cursor = CURSORS.VERT_NS
+        elseif get_point and n and not w and not e and s then cursor = CURSORS.VERT_EW
+        elseif get_point and n and w and e and s then cursor = CURSORS.POINT
+        elseif drag_point and not get_point then cursor = CURSORS.INSIDE
+        elseif extra_point then cursor = CURSORS.INSIDE
+        else cursor = nil
+        end
+    end
+
+    -- Create the pen if the cursor is set
+    if cursor then PENS[pen_key] = self:make_pen(cursor, drag_point, mouse_over, get_point, extra_point) end
+
+    -- Return the pen for the caller
+    return PENS[pen_key]
+end
+
 function Design:init()
     self:addviews {
         interface.ActionPanel {
@@ -308,60 +442,60 @@ function Design:init()
         }
     }
 
-    self.pen_cache = PenCache {
-        is_drag_pt_fn = function(point)
-            local drag_point = false
+    -- self.pen_cache = PenCache {
+    --     is_drag_pt_fn = function(point)
+    --         local drag_point = false
 
-            -- Basic shapes are bounded by rectangles and therefore can have corner drag points
-            -- even if they're not real points in the shape
-            if #self.marks >= self.shape.min_points and self.shape.basic_shape then
-                local shape_top_left, shape_bot_right = self.shape:get_point_dims()
-                local shape_top_right = Point { x = shape_bot_right.x, y = shape_top_left.y }
-                local shape_bot_left = Point { x = shape_top_left.x, y = shape_bot_right.y }
-                if point == shape_top_left and self.shape.drag_corners.nw then drag_point = true
-                elseif point == shape_top_right and self.shape.drag_corners.ne then drag_point = true
-                elseif point == shape_bot_left and self.shape.drag_corners.sw then drag_point = true
-                elseif point == shape_bot_right and self.shape.drag_corners.se then drag_point = true
-                end
-            end
+    --         -- Basic shapes are bounded by rectangles and therefore can have corner drag points
+    --         -- even if they're not real points in the shape
+    --         if #self.marks >= self.shape.min_points and self.shape.basic_shape then
+    --             local shape_top_left, shape_bot_right = self.shape:get_point_dims()
+    --             local shape_top_right = Point { x = shape_bot_right.x, y = shape_top_left.y }
+    --             local shape_bot_left = Point { x = shape_top_left.x, y = shape_bot_right.y }
+    --             if point == shape_top_left and self.shape.drag_corners.nw then drag_point = true
+    --             elseif point == shape_top_right and self.shape.drag_corners.ne then drag_point = true
+    --             elseif point == shape_bot_left and self.shape.drag_corners.sw then drag_point = true
+    --             elseif point == shape_bot_right and self.shape.drag_corners.se then drag_point = true
+    --             end
+    --         end
 
-            for _, mark in ipairs(self.marks) do
-                if mark == point then
-                    drag_point = true
-                end
-            end
+    --         for _, mark in ipairs(self.marks) do
+    --             if mark == point then
+    --                 drag_point = true
+    --             end
+    --         end
 
-            if self.mirror_point and self.mirror_point == point then
-                drag_point = true
-            end
+    --         if self.mirror_point and self.mirror_point == point then
+    --             drag_point = true
+    --         end
 
-            return drag_point
-        end,
-        is_extra_pt_fn = function(point)
-            -- Is there an extra point
-            local is_extra_point = false
-            for _, extra_point in ipairs(self.extra_points) do
-                if point == extra_point then
-                    is_extra_point = true
-                    break
-                end
-            end
+    --         return drag_point
+    --     end,
+    --     is_extra_pt_fn = function(point)
+    --         -- Is there an extra point
+    --         local is_extra_point = false
+    --         for _, extra_point in ipairs(self.extra_points) do
+    --             if point == extra_point then
+    --                 is_extra_point = true
+    --                 break
+    --             end
+    --         end
 
-            -- Show center point if both marks are set
-            if (self.shape.basic_shape and #self.marks == self.shape.max_points) or
-                (not self.shape.basic_shape and not self.placing_mark.active and #self.marks > 0) then
-                local center = self.shape:get_center()
+    --         -- Show center point if both marks are set
+    --         if (self.shape.basic_shape and #self.marks == self.shape.max_points) or
+    --             (not self.shape.basic_shape and not self.placing_mark.active and #self.marks > 0) then
+    --             local center = self.shape:get_center()
 
-                if point == center then
-                    is_extra_point = true
-                end
-            end
+    --             if point == center then
+    --                 is_extra_point = true
+    --             end
+    --         end
 
-            return is_extra_point
-        end,
+    --         return is_extra_point
+    --     end,
 
-        get_arr_fn = function() if self.shape then return self.shape.arr else return {} end end,
-    }
+    --     get_arr_fn = function() if self.shape then return self.shape.arr else return {} end end,
+    -- }
 end
 
 function Design:postinit()
@@ -586,6 +720,55 @@ function Design:get_view_bounds()
     return { x1 = min_x, y1 = min_y, z1 = min_z, x2 = max_x, y2 = max_y, z2 = max_z }
 end
 
+function Design:make_pen(direction, is_corner, is_mouse_over, inshape, extra_point)
+
+    local color = COLOR_GREEN
+    local ycursor_mod = 0
+    if not extra_point then
+        if is_corner then
+            color = COLOR_CYAN
+            ycursor_mod = ycursor_mod + 6
+            if is_mouse_over then
+                color = COLOR_MAGENTA
+                ycursor_mod = ycursor_mod + 3
+            end
+        end
+    elseif extra_point then
+        ycursor_mod = ycursor_mod + 15
+        color = COLOR_LIGHTRED
+
+        if is_mouse_over then
+            color = COLOR_RED
+            ycursor_mod = ycursor_mod + 3
+        end
+
+    end
+    return to_pen {
+        ch = inshape and "X" or "o",
+        fg = color,
+        tile = dfhack.screen.findGraphicsTile(
+            "CURSORS",
+            direction[1],
+            direction[2] + ycursor_mod
+        ),
+    }
+end
+
+-- Generate a bit field to store as keys in PENS
+function Design:gen_pen_key(n, s, e, w, is_corner, is_mouse_over, inshape, extra_point)
+    local ret = 0
+    if n then ret = ret + (1 << PEN_MASK.NORTH) end
+    if s then ret = ret + (1 << PEN_MASK.SOUTH) end
+    if e then ret = ret + (1 << PEN_MASK.EAST) end
+    if w then ret = ret + (1 << PEN_MASK.WEST) end
+    if is_corner then ret = ret + (1 << PEN_MASK.DRAG_POINT) end
+    if is_mouse_over then ret = ret + (1 << PEN_MASK.MOUSEOVER) end
+    if inshape then ret = ret + (1 << PEN_MASK.INSHAPE) end
+    if extra_point then ret = ret + (1 << PEN_MASK.EXTRA_POINT) end
+
+    return ret
+end
+
 -- TODO Function is too long
 function Design:onRenderFrame(dc, rect)
 
@@ -648,7 +831,7 @@ function Design:onRenderFrame(dc, rect)
     end
 
     if self:shape_needs_update() then
-        self.shape:update(points, self.extra_points)
+        self.shape:update(Points{points=points}, self.extra_points)
         self.last_mouse_point = Point(mouse_pos)
         self.needs_update = false
     end
@@ -690,41 +873,56 @@ function Design:onRenderFrame(dc, rect)
             guidm.renderMapOverlay(function() return mirror_guide_pen end, vert_bounds)
         end
     end
-
-    local vp = guidm.Viewport.get()
-    local dscreen = dfhack.screen
-    -- use pairs because shape.arr is a sparse matrix so ipairs doesn't work
-    for x, _ in pairs(self.shape.arr) do
-        for y, _ in pairs(self.shape.arr[x]) do
-            if not (x < vp.x1 or x > vp.x2 or y < vp.y1 or y > vp.y2) and self.shape.arr[x][y] then
-                local stile = vp:tileToScreen(xyz2pos(x, y, df.global.window_z))
-                local point = Point { x = x, y = y }
-                local overlay_pen, char, tile = self.pen_cache:get_pen(point)
-                if overlay_pen then
-                    dscreen.paintTile(overlay_pen, stile.x, stile.y, char, tile, true)
-                end
-            end
-        end
+    
+    local function get_overlay_pen(pos)
+        return self:get_pen(pos.x, pos.y, mouse_pos)
     end
+       -- Generate bounds based on the shape's dimensions
+       local bounds = self:get_view_bounds()
+       if self.shape and bounds then
+           local top_left, bot_right = self.shape:get_view_dims(self.extra_points, self.mirror_point)
+           if not top_left or not bot_right then return end
+           bounds.x1 = top_left.x
+           bounds.x2 = bot_right.x
+           bounds.y1 = top_left.y
+           bounds.y2 = bot_right.y
+       end
+    guidm.renderMapOverlay(get_overlay_pen, nil)
 
-    for i, mark in ipairs(self.marks) do
-        local point = mark
-        local stile = vp:tileToScreen(xyz2pos(point.x, point.y, df.global.window_z))
-        local overlay_pen, char, tile = self.pen_cache:get_pen(point)
-        if overlay_pen then
-            dscreen.paintTile(overlay_pen, stile.x, stile.y, char, tile, true)
-        end
-    end
-    for i, mark in ipairs(self.extra_points) do
-        local point = mark
-        local stile = vp:tileToScreen(xyz2pos(point.x, point.y, df.global.window_z))
-        local overlay_pen, char, tile = self.pen_cache:get_pen(point)
-        if overlay_pen then
-            dscreen.paintTile(overlay_pen, stile.x, stile.y, char, tile, true)
-        end
-    end
+    -- local vp = guidm.Viewport.get()
+    -- local dscreen = dfhack.screen
+    -- -- use pairs because shape.arr is a sparse matrix so ipairs doesn't work
+    -- for x, _ in pairs(self.shape.arr) do
+    --     for y, _ in pairs(self.shape.arr[x]) do
+    --         if not (x < vp.x1 or x > vp.x2 or y < vp.y1 or y > vp.y2) and self.shape.arr[x][y] then
+    --             local stile = vp:tileToScreen(xyz2pos(x, y, df.global.window_z))
+    --             local point = Point { x = x, y = y }
+    --             local overlay_pen, char, tile = self.pen_cache:get_pen(point)
+    --             if overlay_pen then
+    --                 dscreen.paintTile(overlay_pen, stile.x, stile.y, char, tile, true)
+    --             end
+    --         end
+    --     end
+    -- end
 
-    self:updateLayout()
+    -- for i, mark in ipairs(self.marks) do
+    --     local point = mark
+    --     local stile = vp:tileToScreen(xyz2pos(point.x, point.y, df.global.window_z))
+    --     local overlay_pen, char, tile = self.pen_cache:get_pen(point)
+    --     if overlay_pen then
+    --         dscreen.paintTile(overlay_pen, stile.x, stile.y, char, tile, true)
+    --     end
+    -- end
+    -- for i, mark in ipairs(self.extra_points) do
+    --     local point = mark
+    --     local stile = vp:tileToScreen(xyz2pos(point.x, point.y, df.global.window_z))
+    --     local overlay_pen, char, tile = self.pen_cache:get_pen(point)
+    --     if overlay_pen then
+    --         dscreen.paintTile(overlay_pen, stile.x, stile.y, char, tile, true)
+    --     end
+    -- end
+
+    -- self:updateLayout()
 end
 
 -- TODO function too long

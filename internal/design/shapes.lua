@@ -613,7 +613,7 @@ function FreeForm:update(points, extra_points)
 
     -- Iterate over each edge and draw a line
     for _, edge in ipairs(edges) do
-        local line = { { x = edge[1], y = edge[2] }, { x = edge[3], y = edge[4] } }
+        local line = Points{points={ { x = edge[1], y = edge[2] }, { x = edge[3], y = edge[4] } }}
         local line_class = Line()
         line_class.options.thickness.value = thickness
         line_class:update(line, {})
